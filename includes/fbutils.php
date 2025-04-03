@@ -14,6 +14,7 @@ defined( 'ABSPATH' ) || exit;
 use WooCommerce\Facebook\Events\AAMSettings;
 use WooCommerce\Facebook\Events\Normalizer;
 use WooCommerce\Facebook\Framework\Api\Exception as ApiException;
+use WooCommerce\Facebook\Framework\ErrorLogHandler;
 use WooCommerce\Facebook\Products\Sync;
 
 if ( ! class_exists( 'WC_Facebookcommerce_Utils' ) ) :
@@ -863,62 +864,28 @@ if ( ! class_exists( 'WC_Facebookcommerce_Utils' ) ) :
 		 * @since 3.5.0
 		 * 
 		 * @param Throwable $error error object
-		 * @param array $context context example: ['catalog_id' => '1234567890', 'order_id' => '1234567890', 
-		 * 		'promotion_id' => '1234567890', 'flow_name' => 'checkout', 'flow_step' => 'verification', 
-		 * 		'extra_data' => ['dictionary type' => 'any data that is not fall into our pre-defined format.']
+		 * @param array $context wiki: https://www.internalfb.com/wiki/Commerce_Platform/Teams/3P_Ecosystems_(3PE)/3rd_Party_platforms/Woo_Commerce/How_To_Use_WooCommerce_Side_Logging/
 		 */
 		public static function logExceptionImmediatelyToMeta(Throwable $error, array $context = []) {
-			$extra_data = self::getContextData($context, 'extra_data', []);
-			$extra_data['php_version']    = phpversion();
-
-			$request_data = [
-				'event' => 'error_log',
-				'event_type' => self::getContextData($context, 'event_type'),
-				'commerce_merchant_settings_id' => self::getContextData($context, 'commerce_merchant_settings_id', self::$ems),
-				'commerce_partner_integration_id' => self::getContextData($context, 'commerce_partner_integration_id'),
-				'exception_message' => $error->getMessage(),
-				'exception_trace' => $error->getTraceAsString(),
-				'exception_code' => $error->getCode(),
-				'exception_class' => get_class($error),
-				'external_business_id' => self::getContextData($context, 'external_business_id'),
-				'catalog_id' => self::getContextData($context, 'catalog_id'),
-				'order_id' => self::getContextData($context, 'order_id'),
-				'page_id' => self::getContextData($context, 'page_id'),
-				'promotion_id' => self::getContextData($context, 'promotion_id'),
-				'flow_name' => self::getContextData($context, 'flow_name'),
-				'flow_step' => self::getContextData($context, 'flow_step'),
-				'incoming_params' => self::getContextData($context, 'incoming_params'),
-				'seller_platform_app_version' => self::PLUGIN_VERSION,
-				'extra_data' => $extra_data,
-			];
-			
-			// Check if Action Scheduler is available
-			if ( function_exists( 'as_enqueue_async_action' ) ) {
-				as_enqueue_async_action( 'facebook_for_woocommerce_log_api', array( $request_data ) );
-			} else {
-				// Handle the absence of the Action Scheduler
-				self::logWithDebugModeEnabled( 'Action Scheduler is not available.' );
-			}
-
-			self::logWithDebugModeEnabled( 'Request data: ' . json_encode( $request_data ) );
+			ErrorLogHandler::log_exception_to_meta($error, $context);
 		}
 
 		/**
-		 * Utility function for sending telemetry logs to Meta.
+		 * Utility function for sending logs to Meta.
 		 * @since 3.5.0
+		 * 
+		 * @param string $message
+		 * @param array $context wiki: https://www.internalfb.com/wiki/Commerce_Platform/Teams/3P_Ecosystems_(3PE)/3rd_Party_platforms/Woo_Commerce/How_To_Use_WooCommerce_Side_Logging/
 		 */
-		public static function logTelemetryToMeta(string $message, array $context = []) {
-			/**
-			 * WIP: This is a dummy function to send telemetry logs to Meta.
-			 * $context is an array of data that will be sent to Meta, includes commerce_merchant_settings_id,
-			 * catalog_id, order_id, promotion_id, flow_name, flow_step, extra_data and etc.
-			 */
-			
+		public static function logToMeta(string $message, array $context = []) {
+			$extra_data = self::getContextData( $context, 'extra_data', [] );
+			$extra_data['message'] = $message;
+			$context['extra_data'] = $extra_data;
+
 			// Push logging request to global message queue function.
-			$context['extra_data'] = ['message' => $message];
-			$logs = get_transient( 'global_telemetry_message_queue' );
+			$logs = get_transient( 'global_logging_message_queue' );
 			$logs[] = $context;
-			set_transient( 'global_telemetry_message_queue', $logs, HOUR_IN_SECONDS );
+			set_transient( 'global_logging_message_queue', $logs, HOUR_IN_SECONDS );
 		}
 
 		/**
@@ -949,7 +916,7 @@ if ( ! class_exists( 'WC_Facebookcommerce_Utils' ) ) :
 		 * @param mixed $default
 		 * @return mixed
 		 */
-		private static function getContextData(array $context, string $key, $default = null)
+		public static function getContextData(array $context, string $key, $default = null)
 		{
 			return $context[$key] ?? $default;
 		}
